@@ -1,3 +1,4 @@
+# coding: utf-8
 '''
 The point of this script is to parse all subtitle xml data for source target pairs
 It will assume each line is the target of the previous line.
@@ -10,19 +11,29 @@ import os
 import re
 import errno
 
-raw_file = "raw.txt"
-inc = 0
 
+def str2bool(str_):
+    bool_ = True
+    if str_ in ["T", "True", "true", "1", True]:
+        bool_ = True
+    elif str_ in ["F", "False", "false", "0", False]:
+        bool_ = False
+    else:
+        print("Irregular format for boolean")
+        exit(1)
+    return bool_
 
 def main():
     parser = argparse.ArgumentParser(description='Set parameters for xml parser.')
-    parser.add_argument('--rootXmlDir', default="OpenSubtitles/en/",
+    parser.add_argument('--rootXmlDir', default="OpenSubtitles/xml/",
                         help='Path to root directory of xml files')
-    parser.add_argument('--dataDir', default="data/",
+    parser.add_argument('--lang', default='ja')
+    parser.add_argument('--overwrite', default=True, type=str2bool)
+    parser.add_argument('--dataDir', default="parsed/",
                         help='Path to directory process data will be saved.')
     args = parser.parse_args()
-    processed_data_dir = args.dataDir
-    raw_data_dir = args.rootXmlDir
+    processed_data_dir = os.path.join(args.dataDir, args.lang + '/')
+    raw_data_dir = os.path.join(args.rootXmlDir, args.lang + '/')
 
     files = findXmlFiles(raw_data_dir)
     print("Have {} to parse!".format(len(files)))
@@ -30,7 +41,7 @@ def main():
     mkdir_p(processed_data_dir)
     for f in files:
         try:
-            extractTokenizedPhrases(f, processed_data_dir)
+            extractTokenizedPhrases(f, processed_data_dir, args.overwrite)
         except KeyboardInterrupt:
             print("Process stopped by user...")
             return 0
@@ -47,7 +58,7 @@ Loops through folders recursively to find all xml files
 
 def findXmlFiles(directory):
     xmlFiles = []
-    for f in os.listdir(directory):
+    for f in sorted(os.listdir(directory)):
         if os.path.isdir(directory + f):
             xmlFiles = xmlFiles + findXmlFiles(directory + f + "/")
         else:
@@ -65,27 +76,31 @@ This is for memory consideration when processing later down the pipeline
 '''
 
 
-def extractTokenizedPhrases(xmlFilePath, dataDirFilePath):
-    global inc
-    inc += 1
-    mkfile(dataDirFilePath + str(inc) + raw_file)
+def extractTokenizedPhrases(xmlFilePath, dataDirFilePath, overwrite=True):
     tree = ET.parse(xmlFilePath)
     root = tree.getroot()
+    target_file_path = dataDirFilePath + '/' + root.get('id')
+    if os.path.exists(target_file_path):
+        if overwrite:
+            os.remove(target_file_path)
+        else:
+            return
+
     print("Processing {}...".format(xmlFilePath))
     for child in root.findall('s'):
         A = []
         for node in child.getiterator():
             if node.tag == 'w':
-                A.append(node.text.encode('ascii', 'ignore').replace('-', ''))
+                #A.append(node.text.encode('ascii', 'ignore').replace('-', ''))
+                A.append(node.text)
         text = " ".join(A)
         text = cleanText(text)
         try:
             if text[0] != '[' and text[-1] != ':':
-                with open(dataDirFilePath + str(inc) + raw_file, 'a') as f:
+                with open(target_file_path, 'a') as f:
                     f.write(text + "\n")
         except IndexError:
             pass
-
 '''
 This function removes funky things in text
 There is probably a much better way to do it, but unless the token list is
@@ -122,14 +137,6 @@ def mkdir_p(path):
         else:
             raise
 
-
-def mkfile(path):
-    try:
-        with open(path, 'w+'):
-            return 1
-    except IOError:
-        print("Data file open, ensure it is closed, and re-run!")
-        return 0
 
 
 if __name__ == "__main__":
